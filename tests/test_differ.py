@@ -3,7 +3,7 @@ from olostep_link_checker.differ import AMBIGUOUS_CLASSIFICATIONS, BROKEN_CLASSI
 
 def test_external_unreachable_is_ambiguous_not_broken():
     # v3: Olostep itself failing to resolve a link (its own 4xx/5xx) is a third honest
-    # state — never claimed dead, never claimed alive. See PRODUCTION_PLAN.md §10.2.
+    # state — never claimed dead, never claimed alive.
     assert "external-unreachable" in AMBIGUOUS_CLASSIFICATIONS
     assert "external-unreachable" not in BROKEN_CLASSIFICATIONS
 

@@ -1,5 +1,43 @@
 import olostep_link_checker.cli as cli_module
+from olostep_link_checker import __version__
 from olostep_link_checker.cli import main, parse_args
+
+
+def test_version_flag_prints_version_and_exits(capsys):
+    try:
+        parse_args(["--version"])
+    except SystemExit as exc:
+        assert exc.code == 0
+    else:
+        raise AssertionError("--version should exit")
+    captured = capsys.readouterr()
+    assert __version__ in captured.out
+
+
+def test_init_writes_config_and_refuses_to_overwrite_without_force(tmp_path, capsys):
+    output_path = tmp_path / "config.yaml"
+
+    exit_code = main(["init", "--output", str(output_path), "--site-url", "https://example.org"])
+    assert exit_code == 0
+    assert output_path.exists()
+    content = output_path.read_text()
+    assert 'site_url: "https://example.org"' in content
+    assert "https://example.org/this-page-definitely-does-not-exist-404-test" in content
+
+    exit_code_again = main(["init", "--output", str(output_path), "--site-url", "https://other.example"])
+    assert exit_code_again == 1
+    captured = capsys.readouterr()
+    assert "already exists" in captured.err
+    assert 'site_url: "https://example.org"' in output_path.read_text()
+
+
+def test_init_force_overwrites_existing_config(tmp_path):
+    output_path = tmp_path / "config.yaml"
+    output_path.write_text("stale content")
+
+    exit_code = main(["init", "--output", str(output_path), "--site-url", "https://new.example", "--force"])
+    assert exit_code == 0
+    assert 'site_url: "https://new.example"' in output_path.read_text()
 
 
 def test_parse_args_defaults():

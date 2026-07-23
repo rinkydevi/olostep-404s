@@ -7,8 +7,8 @@ REAL_RFC_HTML = (
     "</body></html>"
 )
 
-# A live pilot finding (PRODUCTION_PLAN.md §10.6): third-party 404 templates vary in
-# length and don't always say "404" in the body — but the <title>/<h1> reliably do.
+# A live pilot finding: third-party 404 templates vary in length and don't always
+# say "404" in the body — but the <title>/<h1> reliably do.
 THIRD_PARTY_404_HTML = (
     "<html><head><title>Page Not Found | ExampleCo</title></head>"
     "<body><h1>404</h1><p>Sorry, we could not find that page.</p></body></html>"

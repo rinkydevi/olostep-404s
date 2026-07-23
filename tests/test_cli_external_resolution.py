@@ -337,8 +337,8 @@ async def test_resolved_verdict_clears_the_stale_pre_escalation_status_code(tmp_
     # Live-run finding (2026-07-23): a link plain HTTP saw as 403 got escalated and
     # fingerprint-confirmed dead by Olostep — but the report kept showing "(403)" next
     # to "external-dead", implying 403 itself proved deadness. That contradicts this
-    # project's own rule (DECISIONS.md #10: 403 != dead) and is just stale display state
-    # from before escalation ran. The status shown for a resolved verdict must not imply
+    # project's own rule (403 != dead) and is just stale display state from before
+    # escalation ran. The status shown for a resolved verdict must not imply
     # a status code we no longer trust decided the classification.
     async def external_check_fn(url):
         return FakeExternalResult("external-blocked", 403)

@@ -5,9 +5,9 @@ from bs4 import BeautifulSoup
 from .olostep_client import OlostepAPIError
 
 # External targets plain HTTP couldn't confidently clear on its own. Escalating the
-# dead bucket too was validated live (PRODUCTION_PLAN.md §10.6, n=87): 0 true-dead
-# links were falsely resurrected, and the reclassifications matched already-documented
-# anti-bot-flaky domains (§9.5) found independently by a different method.
+# dead bucket too was validated live (n=87): 0 true-dead links were falsely
+# resurrected, and the reclassifications matched already-documented anti-bot-flaky
+# domains found independently by a different method.
 RESOLVABLE_CLASSIFICATIONS = {"external-blocked", "external-timeout", "external-dead"}
 
 _MIN_SUBSTANTIVE_CHARS = 500
@@ -15,7 +15,7 @@ _MIN_SUBSTANTIVE_CHARS = 500
 # Title/H1-only, deliberately not full-body: full-body matching false-positives on any
 # real page that happens to mention "404" or "not found" in its own content (a blog post
 # about broken links, for instance). Live-validated against 21 genuine-dead + 20 known-good
-# targets with 0 false positives and 0 false negatives (§10.6).
+# targets with 0 false positives and 0 false negatives.
 _DEAD_PHRASES = (
     "404",
     "not found",
@@ -56,10 +56,9 @@ def _visible_text_length(html: str) -> int:
 
 
 async def resolve_external(url: str, scrape_fn) -> ResolvedVerdict:
-    # We deliberately never read the scrape's status code here — PRODUCTION_PLAN.md §8.1
-    # and §10.6 both show it reflects the rendered document, not the origin, and is `200`
-    # even for genuine 404s. Liveness is decided by content substance + a not-found
-    # fingerprint only.
+    # We deliberately never read the scrape's status code here — it reflects the
+    # rendered document, not the origin, and is `200` even for genuine 404s. Liveness
+    # is decided by content substance + a not-found fingerprint only.
     try:
         _status_code, html = await scrape_fn(url)
     except OlostepAPIError as exc:

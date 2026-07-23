@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from . import __version__
 from .budget import Budget
 from .canary import run_canary
 from .classifier import classify
@@ -28,7 +29,7 @@ from .urlnorm import resolve
 from .verdict_cache import VerdictCache
 
 # Classifications plain HTTP settles on its own — never sent through the v3 external
-# resolver, and never re-escalated once resolved. See PRODUCTION_PLAN.md §10.2.
+# resolver, and never re-escalated once resolved.
 _CONFIRMED_CONFIDENCE_DEFAULT = "confirmed"
 
 
@@ -42,7 +43,7 @@ def _classify_fetch(pf: PageFetch, trust_fingerprint: bool = True) -> str:
 
 # Classifications plain HTTP could not settle on its own — either pending v3 escalation
 # or (for external-check-error) a transport failure with no known status at all. Both
-# are honestly "we don't know yet," never "confirmed." See PRODUCTION_PLAN.md §10.2.
+# are honestly "we don't know yet," never "confirmed."
 _UNVERIFIED_BY_DEFAULT = RESOLVABLE_CLASSIFICATIONS | {"external-check-error", "external-unreachable"}
 
 # Terminal Olostep-side failures during escalation (it couldn't reach the page at all, or
@@ -247,10 +248,10 @@ async def run_pipeline(
         )
 
     # Stage 6 (v3): resolve every external result plain HTTP left ambiguous — blocked,
-    # timed out, or (per PRODUCTION_PLAN.md §10.6) even confirmed-dead, since a
-    # same-signature plain-HTTP recheck cannot beat a signature-based anti-bot soft-block
-    # but Olostep's differently-fingerprinted request can. Budget-gated like JS-shell
-    # escalation; a cached, non-stale verdict from a prior run is reused for free.
+    # timed out, or even confirmed-dead, since a same-signature plain-HTTP recheck
+    # cannot beat a signature-based anti-bot soft-block but Olostep's
+    # differently-fingerprinted request can. Budget-gated like JS-shell escalation;
+    # a cached, non-stale verdict from a prior run is reused for free.
     if verdict_cache is None:
         verdict_cache = VerdictCache({})
     now_fn = now_fn or _utcnow
@@ -296,10 +297,10 @@ async def run_pipeline(
         if resolved_classification not in _OLOSTEP_FAILURE_CLASSIFICATIONS:
             # The pre-escalation status_code (from plain HTTP) no longer reflects why this
             # verdict was reached — the fingerprint/content-substance rule did, and we
-            # deliberately never trust Olostep's own status code either (§8.1/§10.6).
-            # Keeping the stale number would misleadingly imply e.g. "403 means dead",
-            # contradicting DECISIONS.md #10. A live run (2026-07-23) surfaced this exact
-            # display bug on real data (gartner.com/pcmag.com, both shown as "(403)").
+            # deliberately never trust Olostep's own status code either. Keeping the
+            # stale number would misleadingly imply e.g. "403 means dead" — a live run
+            # surfaced this exact display bug on real data (gartner.com/pcmag.com,
+            # both shown as "(403)").
             r["status_code"] = None
         verdict_cache.put(
             r["url"], classification=resolved_classification, confidence=resolved_confidence, resolved_at=now_fn()
@@ -338,8 +339,64 @@ async def run_pipeline(
     return {"report": report, "run": run, "exit_code": exit_code}
 
 
+_INIT_CONFIG_TEMPLATE = """\
+# Copy of the olostep-link-checker config template, scaffolded by `olostep-link-checker init`.
+# The API key is never read from this file — set it via the OLOSTEP_API_KEY env var.
+
+site_url: "{site_url}"
+
+# Glob patterns for app routes / non-SEO surface to skip (same syntax as Olostep Maps'
+# exclude_urls), e.g.:
+# exclude_patterns:
+#   - "/dashboard/**"
+#   - "/auth"
+
+exclude_patterns: []
+
+# A URL on your site that is guaranteed not to exist. Checked every run to confirm the
+# soft-404 fingerprint (olostep_link_checker/classifier.py) still matches your site's
+# actual 404 page before trusting any soft-404 classification.
+canary_url: "{site_url}/this-page-definitely-does-not-exist-404-test"
+
+# Optional hard cap on Olostep scrape credits per run. Leave commented out for no cap:
+# every JS-shell page and every ambiguous external link gets resolved every run.
+# budget_ceiling: 250
+
+# Max concurrent scrape calls in flight at once.
+concurrency: 10
+
+# Where run history (JSON, one file per run) is written and read back from for diffing.
+runs_dir: "data/runs"
+
+# Where resolved external-link verdicts are cached across runs, keyed by URL.
+verdict_cache_path: "data/external_verdicts.json"
+verdict_staleness_days: 14
+"""
+
+
+def run_init(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="olostep-link-checker init", description="Scaffold a config.yaml for your site"
+    )
+    parser.add_argument("--site-url", default="https://example.com", help="Your site's URL")
+    parser.add_argument("--output", default="config.yaml", help="Path to write the config file")
+    parser.add_argument("--force", action="store_true", help="Overwrite the output file if it already exists")
+    args = parser.parse_args(argv)
+
+    output_path = Path(args.output)
+    if output_path.exists() and not args.force:
+        print(f"{output_path} already exists. Use --force to overwrite.", file=sys.stderr)
+        return 1
+
+    output_path.write_text(_INIT_CONFIG_TEMPLATE.format(site_url=args.site_url.rstrip("/")))
+    print(f"Wrote {output_path}.")
+    print(f"Next: edit it, then run `export OLOSTEP_API_KEY=<your-key>` and `olostep-link-checker --config {output_path}`.")
+    return 0
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Olostep Link Checker")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--config", default="config.yaml", help="Path to the config YAML file")
     parser.add_argument(
         "--retention-days",
@@ -415,6 +472,10 @@ async def _async_main(config, retention_days: int) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == "init":
+        return run_init(argv[1:])
+
     args = parse_args(argv)
 
     try:

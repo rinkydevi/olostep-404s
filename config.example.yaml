@@ -12,17 +12,15 @@ exclude_patterns:
 
 # A URL on the site that is guaranteed not to exist. Used every run to verify the
 # soft-404 fingerprint (classifier.py) still matches this site's actual 404 page
-# before trusting any classification result. See PRODUCTION_PLAN.md §6.1.
+# before trusting any classification result.
 canary_url: "https://www.olostep.com/this-page-definitely-does-not-exist-404-test"
 
 # Optional hard cap on Olostep SCRAPE credits per run. Internal page status/harvest is
-# still plain HTTP (free, v2.0's core result) — credits go to JS-shell escalation (a
-# handful) and, as of v3, resolving every external link plain HTTP left ambiguous
-# (blocked, timed out, or even confirmed-dead — see PRODUCTION_PLAN.md §10 for why the
-# dead bucket is included). Leave this key out (the default) for NO cap: every
-# ambiguous external link is resolved every run, accuracy over cost, per the team's
-# own call in PRODUCTION_PLAN.md §10.3 that Olostep usage volume is itself a product
-# goal here. Set an integer only if a specific run needs a hard cost ceiling.
+# still plain HTTP (free) — credits go to JS-shell escalation (a handful) and resolving
+# every external link plain HTTP left ambiguous (blocked, timed out, or even
+# confirmed-dead). Leave this key out (the default) for NO cap: every ambiguous
+# external link is resolved every run, accuracy over cost. Set an integer only if a
+# specific run needs a hard cost ceiling.
 # budget_ceiling: 250
 
 # Max concurrent scrape_website calls in flight at once (shared by JS-shell escalation

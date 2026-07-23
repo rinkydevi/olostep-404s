@@ -12,7 +12,7 @@ def _entry_dict(diff_entry: DiffEntry, results_by_url: dict) -> dict:
         "anchor_text": result.get("anchor_text", []),
         "first_seen": diff_entry.first_seen,
         # v3: was this "confirmed" by plain HTTP or "browser-verified" via an Olostep
-        # escalation (PRODUCTION_PLAN.md §10.2 point 5) — never conflate the two.
+        # escalation — never conflate the two.
         "confidence": result.get("confidence", "confirmed"),
     }
 

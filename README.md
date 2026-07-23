@@ -1,5 +1,7 @@
 # Olostep Link Checker
 
+[![Tests](https://github.com/rinkydevi/olostep-404s/actions/workflows/test.yml/badge.svg)](https://github.com/rinkydevi/olostep-404s/actions/workflows/test.yml)
+
 Detects 404s and broken links (hard and soft) on a site. Built so a designer shipping new
 pages can't silently tank SEO with a dead link.
 
@@ -12,21 +14,53 @@ can't see into, and re-verifying every external link plain HTTP couldn't confide
 browser get different answers from third-party sites, live-verified at scale). Verdicts
 are cached across runs so only new/changed external links pay the credit again.
 
-## Setup (any teammate, on their own machine)
+## Install
 
 ```bash
-git clone <this-repo> && cd olostep-link-checker
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .                          # installs the `olostep-link-checker` command
+pipx install olostep-link-checker
 export OLOSTEP_API_KEY="your-own-key"     # never put this in the config file
 ```
 
-`pip install -e .` registers a real command on your PATH — after this, `olostep-link-checker`
-works from anywhere (no `python -m`, no remembering the package path). Each person uses
-their own Olostep API key via the env var; nothing here is shared or hardcoded.
+[pipx](https://pipx.pypa.io) installs the CLI into its own isolated virtual environment
+automatically — you never see, activate, or manage a venv yourself, and it won't conflict
+with anything else on your system. This is the recommended way to install for one reason:
+plain `pip install olostep-link-checker` can fail outright with an
+"externally-managed-environment" error on Homebrew Python or newer Debian/Ubuntu (PEP 668)
+unless you're already inside your own virtualenv.
+
+If you're already working inside your own venv, plain pip works fine too:
+
+```bash
+pip install olostep-link-checker
+export OLOSTEP_API_KEY="your-own-key"
+```
+
+### From source (for development, or before a version is published)
+
+```bash
+git clone https://github.com/rinkydevi/olostep-404s && cd olostep-404s
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+export OLOSTEP_API_KEY="your-own-key"
+```
+
+Either way, once installed, `olostep-link-checker` is a real command on your PATH — no
+`python -m`, no remembering a package path. Each person uses their own Olostep API key via
+the env var; nothing here is shared or hardcoded. Check what's installed with
+`olostep-link-checker --version`.
 
 ## Configure
+
+Scaffold a config file for your site:
+
+```bash
+olostep-link-checker init --site-url https://yoursite.com
+```
+
+This writes `config.yaml` (refuses to overwrite an existing one unless you pass `--force`,
+and accepts `--output` to write somewhere else). Equivalently, you can copy the template
+by hand:
 
 ```bash
 cp config.example.yaml config.yaml

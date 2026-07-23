@@ -15,8 +15,7 @@ AMBIGUOUS_CLASSIFICATIONS = {
     "external-blocked",
     "external-timeout",
     # v3: Olostep itself couldn't resolve the link (its own 4xx/5xx) even after
-    # escalation — a third honest state, never claimed dead or alive. See
-    # PRODUCTION_PLAN.md §10.2.
+    # escalation — a third honest state, never claimed dead or alive.
     "external-unreachable",
     # v3.1: Olostep refuses this domain by durable account policy (LinkedIn, Reddit —
     # "approval_required"), not a transient technical failure. Distinct from

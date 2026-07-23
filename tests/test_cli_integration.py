@@ -74,8 +74,8 @@ async def external_check_fn(url):
 
 async def scrape_fn(url):
     if url == "https://external.com/dead":
-        # v3 escalates the external-dead bucket too (PRODUCTION_PLAN.md §10.2/§10.6) —
-        # this fixture's dead link stays genuinely dead under Olostep re-verification.
+        # v3 escalates the external-dead bucket too — this fixture's dead link stays
+        # genuinely dead under Olostep re-verification.
         return 200, "<html><head><title>404 Not Found</title></head><body><h1>404</h1></body></html>"
     raise AssertionError(f"no JS-shell page in this fixture; scrape must not be called for {url}")
 

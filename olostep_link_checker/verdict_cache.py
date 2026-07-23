@@ -12,9 +12,9 @@ class CachedVerdict:
 
 
 class VerdictCache:
-    """Persists resolved external-link verdicts across runs (PRODUCTION_PLAN.md §10.2
-    point 4) so only new/changed links pay an Olostep escalation credit — a link
-    resolved last run doesn't need re-resolving until its staleness window expires.
+    """Persists resolved external-link verdicts across runs so only new/changed links
+    pay an Olostep escalation credit — a link resolved last run doesn't need
+    re-resolving until its staleness window expires.
     """
 
     def __init__(self, entries: dict[str, CachedVerdict]):

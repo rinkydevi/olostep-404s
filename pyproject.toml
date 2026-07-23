@@ -1,19 +1,37 @@
 [project]
 name = "olostep-link-checker"
-version = "0.1.0"
+version = "1.0.0"
+description = "Broken-link checker that uses Olostep Maps for discovery and plain HTTP for status, reserving Olostep Scrape for JS-shell pages and anti-bot-blocked external links."
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
-dependencies = [
-    "httpx==0.28.1",
-    "beautifulsoup4==4.15.0",
-    "lxml==6.1.1",
-    "PyYAML==6.0.3",
+authors = [{ name = "Rinky" }]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: Site Management :: Link Checking",
 ]
+dependencies = [
+    "httpx>=0.28,<0.29",
+    "beautifulsoup4>=4.12,<5",
+    "lxml>=5,<7",
+    "PyYAML>=6,<7",
+]
+
+[project.urls]
+Homepage = "https://github.com/rinkydevi/olostep-404s"
+Repository = "https://github.com/rinkydevi/olostep-404s"
+Issues = "https://github.com/rinkydevi/olostep-404s/issues"
 
 [project.optional-dependencies]
 dev = [
-    "pytest==9.1.1",
-    "respx==0.23.1",
-    "pytest-asyncio==1.4.0",
+    "pytest>=9,<10",
+    "respx>=0.22,<1",
+    "pytest-asyncio>=1.4,<2",
 ]
 
 [project.scripts]
