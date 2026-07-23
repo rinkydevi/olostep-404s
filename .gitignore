@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+build/
+dist/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Real instance config (config.example.yaml is the tracked template)
+config.yaml
+
+# Runtime data / generated reports (site-specific, not source)
+data/
+reports/
+
+# Internal planning docs (not published)
+PRODUCTION_PLAN.md
+DECISIONS.md
+SPEC.md
+findings.md
+RUNBOOK.md
+
+# Claude Code session/settings
+.claude/
+
+# Editor/OS
+.DS_Store
