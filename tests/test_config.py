@@ -1,6 +1,6 @@
 import pytest
 
-from olostep_link_checker.config import ConfigError, load_config
+from olostep_link_checker.config import ConfigError, config_from_site_url, load_config
 
 FULL_YAML = """
 site_url: "https://www.olostep.com"
@@ -76,3 +76,28 @@ def test_missing_required_canary_url_raises_config_error(tmp_path):
     path = write_config(tmp_path, 'site_url: "https://x.com"\n')
     with pytest.raises(ConfigError, match="canary_url"):
         load_config(path, env={"OLOSTEP_API_KEY": "secret-123"})
+
+
+def test_config_from_site_url_applies_same_defaults_as_a_minimal_config_file():
+    config = config_from_site_url("https://cloro.dev", env={"OLOSTEP_API_KEY": "secret-123"})
+
+    assert config.site_url == "https://cloro.dev"
+    assert config.canary_url == "https://cloro.dev/this-page-definitely-does-not-exist-404-test"
+    assert config.exclude_patterns == []
+    assert config.budget_ceiling is None
+    assert config.concurrency == 10
+    assert config.runs_dir == "data/runs"
+    assert config.api_key == "secret-123"
+    assert config.verdict_cache_path == "data/external_verdicts.json"
+    assert config.verdict_staleness_days == 14
+
+
+def test_config_from_site_url_strips_trailing_slash():
+    config = config_from_site_url("https://cloro.dev/", env={"OLOSTEP_API_KEY": "secret-123"})
+    assert config.site_url == "https://cloro.dev"
+    assert config.canary_url == "https://cloro.dev/this-page-definitely-does-not-exist-404-test"
+
+
+def test_config_from_site_url_raises_when_api_key_missing():
+    with pytest.raises(ConfigError, match="OLOSTEP_API_KEY"):
+        config_from_site_url("https://cloro.dev", env={})

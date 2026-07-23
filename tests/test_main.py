@@ -54,6 +54,43 @@ def test_parse_args_overrides():
     assert args.csv == "out.csv"
 
 
+def test_main_with_site_url_skips_needing_a_config_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OLOSTEP_API_KEY", "test-key")
+    assert not (tmp_path / "config.yaml").exists()
+
+    seen_configs = []
+
+    async def fake_async_main(config, retention_days):
+        seen_configs.append(config)
+        return {"report": {"trusted": True, "run_failed": False, "canary": {"passed": True, "reason": None}, "new_baseline": [], "newly_broken": [], "still_broken": [], "fixed": [], "no_longer_scanned": [], "unverified": []}, "run": {"run_id": "2026-07-23T00:00:00Z", "results": []}, "exit_code": 0}
+
+    monkeypatch.setattr(cli_module, "_async_main", fake_async_main)
+
+    exit_code = main(["--site-url", "https://cloro.dev"])
+
+    assert exit_code == 0
+    assert len(seen_configs) == 1
+    assert seen_configs[0].site_url == "https://cloro.dev"
+    assert seen_configs[0].canary_url == "https://cloro.dev/this-page-definitely-does-not-exist-404-test"
+
+
+def test_main_site_url_takes_priority_over_config_flag(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OLOSTEP_API_KEY", "test-key")
+    # Point --config at a file that doesn't exist — if --site-url didn't take
+    # priority, this would fail with a config-file-not-found error (exit code 4).
+    missing_config = tmp_path / "does-not-exist.yaml"
+
+    async def fake_async_main(config, retention_days):
+        return {"report": {"trusted": True, "run_failed": False, "canary": {"passed": True, "reason": None}, "new_baseline": [], "newly_broken": [], "still_broken": [], "fixed": [], "no_longer_scanned": [], "unverified": []}, "run": {"run_id": "2026-07-23T00:00:00Z", "results": []}, "exit_code": 0}
+
+    monkeypatch.setattr(cli_module, "_async_main", fake_async_main)
+
+    exit_code = main(["--config", str(missing_config), "--site-url", "https://cloro.dev"])
+    assert exit_code == 0
+
+
 def _valid_config(tmp_path, monkeypatch):
     monkeypatch.setenv("OLOSTEP_API_KEY", "test-key")
     config_path = tmp_path / "config.yaml"
@@ -61,7 +98,7 @@ def _valid_config(tmp_path, monkeypatch):
     return config_path
 
 
-def test_main_writes_csv_and_prints_pipe_table_when_csv_flag_given(tmp_path, monkeypatch, capsys):
+def test_main_writes_csv_and_prints_summary_when_csv_flag_given(tmp_path, monkeypatch, capsys):
     config_path = _valid_config(tmp_path, monkeypatch)
     csv_path = tmp_path / "broken.csv"
 
@@ -97,21 +134,21 @@ def test_main_writes_csv_and_prints_pipe_table_when_csv_flag_given(tmp_path, mon
     assert "https://x.com/broken" in csv_content
 
     captured = capsys.readouterr()
-    assert "url | from | status" in captured.out
-    assert "https://x.com/broken" in captured.out
+    assert f"1 broken URL(s) found. Full list: {csv_path}" in captured.out
 
 
-def test_main_skips_csv_when_flag_not_given(tmp_path, monkeypatch):
+def test_main_writes_csv_to_default_reports_path_when_flag_not_given(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     config_path = _valid_config(tmp_path, monkeypatch)
 
     async def fake_async_main(config, retention_days):
-        return {"report": {"trusted": True, "run_failed": False, "canary": {"passed": True, "reason": None}, "new_baseline": [], "newly_broken": [], "still_broken": [], "fixed": [], "no_longer_scanned": [], "unverified": []}, "run": {"run_id": "x", "results": []}, "exit_code": 0}
+        return {"report": {"trusted": True, "run_failed": False, "canary": {"passed": True, "reason": None}, "new_baseline": [], "newly_broken": [], "still_broken": [], "fixed": [], "no_longer_scanned": [], "unverified": []}, "run": {"run_id": "2026-07-23T00:00:00Z", "results": []}, "exit_code": 0}
 
     monkeypatch.setattr(cli_module, "_async_main", fake_async_main)
 
     exit_code = main(["--config", str(config_path)])
     assert exit_code == 0
-    assert not (tmp_path / "broken.csv").exists()
+    assert (tmp_path / "reports" / "broken-links-2026-07-23T00-00-00Z.csv").exists()
 
 
 def test_main_returns_config_error_exit_code_when_config_file_missing(tmp_path, capsys):

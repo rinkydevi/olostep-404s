@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -12,18 +13,18 @@ from . import __version__
 from .budget import Budget
 from .canary import run_canary
 from .classifier import classify
-from .config import ConfigError, load_config
+from .config import ConfigError, config_from_site_url, load_config
 from .differ import diff
 from .discovery import discover_urls
 from .escalation import needs_js_render
 from .external_checker import check_external
 from .external_resolver import RESOLVABLE_CLASSIFICATIONS, ResolvedVerdict, resolve_external
-from .flat_report import flat_broken_list, render_pipe_table, write_csv
+from .flat_report import flat_broken_list, write_csv
 from .http_fetcher import PageFetch, fetch_page
 from .links import extract_links
 from .olostep_client import OlostepAPIError, OlostepClient
 from .patterns import is_placeholder_domain, matches_exclude
-from .report import build_report, render_human_readable
+from .report import build_report
 from .store import get_previous_run, prune_older_than, save_run
 from .urlnorm import resolve
 from .verdict_cache import VerdictCache
@@ -101,8 +102,10 @@ async def run_pipeline(
     verdict_staleness_days: int = 14,
     now_fn=None,
 ) -> dict:
+    pipeline_start = time.monotonic()
     maps_set = discover_urls(create_map_fn, exclude_patterns)
     site_hosts = {urlsplit(u).netloc for u in maps_set}
+    print(f"Discovered {len(maps_set)} URL(s). Checking each over plain HTTP...")
 
     async def _canary_html(url: str) -> str:
         pf = await canary_get_fn(url)
@@ -124,24 +127,41 @@ async def run_pipeline(
     # Stage 2: escalate ONLY JS-shell pages to an Olostep scrape (budget-gated). A page
     # already classified as broken (hard/soft-404, redirect) has its answer — only an
     # otherwise-"ok" page that looks like an empty shell is worth a JS-render credit.
+    # Run concurrently (bounded by `concurrency`, budget check-and-consume serialized
+    # under a lock) rather than one-at-a-time — each scrape is a real network round trip
+    # to Olostep, so a serial loop made this stage the dominant cost on JS-heavy sites.
     budget_exhausted = False
-    for url in sorted(page_fetches):
+    escalation_semaphore = asyncio.Semaphore(concurrency)
+    escalation_budget_lock = asyncio.Lock()
+    escalated_count = 0
+
+    async def _escalate_one(url: str) -> None:
+        nonlocal budget_exhausted, escalated_count
         pf = page_fetches[url]
         if _classify_fetch(pf, trust_fingerprint) != "ok":
-            continue
+            return
         if not needs_js_render(pf.status_code, pf.html):
-            continue
-        if not budget.can_consume():
-            budget_exhausted = True
-            continue
-        budget.consume()
-        try:
-            status_code, html = await scrape_fn(url)
-            page_fetches[url] = PageFetch(url=url, status_code=status_code, html=html)
-        except Exception:
-            # an escalation scrape failing (timeout, API error) must not abort the run —
-            # keep the page's plain-HTTP result and move on.
-            pass
+            return
+
+        async with escalation_budget_lock:
+            if not budget.can_consume():
+                budget_exhausted = True
+                return
+            budget.consume()
+
+        async with escalation_semaphore:
+            try:
+                status_code, html = await scrape_fn(url)
+                page_fetches[url] = PageFetch(url=url, status_code=status_code, html=html)
+                escalated_count += 1
+            except Exception:
+                # an escalation scrape failing (timeout, API error) must not abort the run —
+                # keep the page's plain-HTTP result and move on.
+                pass
+
+    await asyncio.gather(*(_escalate_one(url) for url in sorted(page_fetches)))
+    if escalated_count:
+        print(f"Escalated {escalated_count} JS-shell page(s) to Olostep render.")
 
     # Stage 3: harvest the link graph from every fetched (and possibly escalated) page.
     anchors: dict[str, list[tuple[str, str]]] = {}
@@ -217,6 +237,7 @@ async def run_pipeline(
             }
         )
 
+    print(f"Checking {len(external_targets)} external link(s)...")
     ext_semaphore = asyncio.Semaphore(concurrency)
 
     async def _check_external_target(target: str):
@@ -287,6 +308,9 @@ async def run_pipeline(
     to_resolve = [
         r for r in results if r["classification"] in RESOLVABLE_CLASSIFICATIONS and r.get("resolvable", True)
     ]
+    if to_resolve:
+        print(f"Resolving {len(to_resolve)} ambiguous external link(s) (cached verdicts reused for free)...")
+    credits_before_resolution = budget.credits_consumed
     resolved = await asyncio.gather(*(_resolve_one(r) for r in to_resolve))
     for r, resolved_classification, resolved_confidence, exhausted in resolved:
         if exhausted:
@@ -306,6 +330,14 @@ async def run_pipeline(
             r["url"], classification=resolved_classification, confidence=resolved_confidence, resolved_at=now_fn()
         )
 
+    resolved_via_olostep = budget.credits_consumed - credits_before_resolution
+    if to_resolve:
+        print(
+            f"Resolved {len(to_resolve)} external link(s): "
+            f"{resolved_via_olostep} via Olostep, "
+            f"{len(to_resolve) - resolved_via_olostep} from cache or skipped (budget)."
+        )
+
     run = {
         "run_id": run_id,
         "site_scope": sorted({f"{urlsplit(u).scheme}://{urlsplit(u).netloc}" for u in maps_set}),
@@ -313,7 +345,7 @@ async def run_pipeline(
         "canary": {"passed": canary_result.passed, "reason": canary_result.reason, "fingerprint_version": "v1"},
         "urls_scanned": len(page_fetches) + len(unlisted_fetches),
         "credits_consumed": budget.credits_consumed,
-        "duration_seconds": 0.0,
+        "duration_seconds": round(time.monotonic() - pipeline_start, 2),
         "results": results,
     }
 
@@ -329,14 +361,15 @@ async def run_pipeline(
         if r["url"] in first_seen_by_url:
             r["first_seen"] = first_seen_by_url[r["url"]]
 
-    save_run(run, runs_dir)
+    run_path = save_run(run, runs_dir)
 
     report = build_report(diff_result, run, canary_passed=canary_result.passed, canary_reason=canary_result.reason)
     # Canary failure (2) takes priority to surface over a mere budget partial (1) — it's
     # the rarer, more actionable signal (a stale fingerprint needs a code fix, not just a
     # bigger budget) — but either way the run completed and produced a full report.
     exit_code = 2 if not canary_result.passed else (1 if budget_exhausted else 0)
-    return {"report": report, "run": run, "exit_code": exit_code}
+    print("Scan complete. Building report...")
+    return {"report": report, "run": run, "exit_code": exit_code, "run_path": str(run_path)}
 
 
 _INIT_CONFIG_TEMPLATE = """\
@@ -399,6 +432,12 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--config", default="config.yaml", help="Path to the config YAML file")
     parser.add_argument(
+        "--site-url",
+        default=None,
+        help="Scan this site directly, skipping the need for a config file "
+        "(uses sensible defaults for everything else). Takes priority over --config.",
+    )
+    parser.add_argument(
         "--retention-days",
         type=int,
         default=90,
@@ -407,14 +446,28 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument(
         "--csv",
         default=None,
-        help="Write confirmed-broken links to this CSV file (url,from,status)",
+        help="Write confirmed-broken links to this CSV file (url,from,status). "
+        "Defaults to reports/broken-links-<run_id>.csv",
     )
     return parser.parse_args(argv)
 
 
+def _default_csv_path(run_id: str) -> Path:
+    return Path("reports") / f"broken-links-{run_id.replace(':', '-')}.csv"
+
+
 async def _async_main(config, retention_days: int) -> dict:
+    # Diagnostic only: counts every transient-error retry (429/502/503/504/timeout) across
+    # both plain-HTTP fetches and Olostep API calls, so a run's printed summary can show
+    # whether raising `concurrency` is actually triggering rate-limit backoff.
+    retry_stats = {"count": 0}
+
+    async def counting_sleep(seconds: float) -> None:
+        retry_stats["count"] += 1
+        await asyncio.sleep(seconds)
+
     async with httpx.AsyncClient(follow_redirects=True, max_redirects=10, timeout=15.0) as http_client:
-        client = OlostepClient(api_key=config.api_key, http_client=http_client)
+        client = OlostepClient(api_key=config.api_key, http_client=http_client, sleep_fn=counting_sleep)
 
         try:
             # NOTE: we deliberately do NOT pass exclude_urls to Maps. Verified live
@@ -430,7 +483,7 @@ async def _async_main(config, retention_days: int) -> dict:
             return {"report": report, "run": None, "exit_code": 5}
 
         async def http_get_fn(url: str) -> PageFetch:
-            return await fetch_page(url, http_client)
+            return await fetch_page(url, http_client, sleep_fn=counting_sleep)
 
         async def external_check_fn(url: str):
             return await check_external(url, http_client)
@@ -463,6 +516,9 @@ async def _async_main(config, retention_days: int) -> dict:
             verdict_staleness_days=config.verdict_staleness_days,
         )
 
+        if retry_stats["count"]:
+            print(f"Retried {retry_stats['count']} rate-limited/transient request(s) during this run.")
+
         # Persisted regardless of outcome — a partial/budget-stopped run still resolved
         # some externals, and those verdicts are worth keeping for next time.
         verdict_cache.save(verdict_cache_path)
@@ -479,23 +535,33 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
     try:
-        config = load_config(args.config, env=os.environ)
+        if args.site_url:
+            config = config_from_site_url(args.site_url, env=os.environ)
+        else:
+            config = load_config(args.config, env=os.environ)
     except ConfigError as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 4
 
+    print(f"Checking {config.site_url} for broken links...")
     outcome = asyncio.run(_async_main(config, args.retention_days))
+    report = outcome["report"]
 
-    print(render_human_readable(outcome["report"]))
+    if report.get("run_failed"):
+        print(f"Scan failed: {report['canary']['reason']}", file=sys.stderr)
+        return outcome["exit_code"]
 
-    if outcome["run"] is not None:
-        rows = flat_broken_list(outcome["run"])
-        print()
-        print(render_pipe_table(rows))
-        if args.csv:
-            write_csv(rows, args.csv)
-            print(f"\nWrote {len(rows)} confirmed-broken link(s) to {args.csv}")
+    if not report["canary"]["passed"]:
+        print(f"Warning: canary check failed ({report['canary']['reason']}) — soft-404 detection unverified this run.")
+    if outcome["exit_code"] == 1:
+        print("Warning: budget exhausted before all links were resolved — some results are unverified.")
 
+    rows = flat_broken_list(outcome["run"])
+    csv_path = Path(args.csv) if args.csv else _default_csv_path(outcome["run"]["run_id"])
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    write_csv(rows, csv_path)
+
+    print(f"{len(rows)} broken URL(s) found. Full list: {csv_path}")
     return outcome["exit_code"]
 
 

@@ -23,16 +23,57 @@ then this git-based install is the primary path.)
 
 ## Quick start
 
+For a one-off scan, no config file needed:
+
+```bash
+olostep-link-checker --site-url https://yoursite.com
+```
+
+This prints a running summary and writes every broken link found to
+`reports/broken-links-<run_id>.csv` (`url | from | status`). Pass `--csv path.csv` to
+choose the output path instead.
+
+### Running from a local source checkout
+
+If you've cloned this repo instead of installing via pipx, activate its venv first:
+
+```bash
+cd /path/to/olostep-link-checker
+source .venv/bin/activate
+
+export OLOSTEP_API_KEY="your-actual-key-here"   # stays local to your shell
+
+olostep-link-checker --site-url https://yoursite.com   # no config file needed
+```
+
+Expect live progress lines as each stage runs, then a one-line summary:
+
+```
+Checking https://yoursite.com for broken links...
+Discovered 142 URL(s). Checking each over plain HTTP...
+Escalated 2 JS-shell page(s) to Olostep render.
+Checking 58 external link(s)...
+Resolving 12 ambiguous external link(s) (cached verdicts reused for free)...
+Resolved 12 external link(s): 12 via Olostep, 0 from cache or skipped (budget).
+Scan complete. Building report...
+5 broken URL(s) found. Full list: reports/broken-links-2026-07-23T16-45-26Z.csv
+```
+
+Then look at the results:
+
+```bash
+cat reports/broken-links-*.csv
+```
+
+## Config (optional — for recurring scans)
+
+If you're scanning the same site repeatedly and want to tune exclude-patterns or set a
+credit cap, scaffold a config file instead of using `--site-url`:
+
 ```bash
 olostep-link-checker init --site-url https://yoursite.com   # writes config.yaml
 olostep-link-checker --config config.yaml
 ```
-
-This prints a categorized summary (new / still-broken / fixed since the last run) and a
-flat `url | from | status` table of every currently-broken link. Add `--csv out.csv` to
-also write that table to a file.
-
-## Config
 
 Key fields in `config.yaml` (see `config.example.yaml` for the full annotated template):
 
@@ -54,7 +95,7 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-193 tests, all against mocks/fixtures — no live Olostep credits spent by the suite.
+198 tests, all against mocks/fixtures — no live Olostep credits spent by the suite.
 
 ## License
 
